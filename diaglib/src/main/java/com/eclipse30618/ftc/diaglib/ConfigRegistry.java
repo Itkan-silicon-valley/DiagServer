@@ -1,9 +1,9 @@
 package com.eclipse30618.ftc.diaglib;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.DoubleConsumer;
 import java.util.function.DoubleSupplier;
 
@@ -14,12 +14,14 @@ import java.util.function.DoubleSupplier;
  * updates like: SET shooter_kp=0.02
  */
 public final class ConfigRegistry {
-    private final Map<String, DoubleEntry> doubles = new HashMap<>();
+    private final Map<String, DoubleEntry> doubles = new ConcurrentHashMap<>();
 
     /**
      * Register a live-tunable double value.
      *
      * The dashboard can LISTCFG to discover these entries and SET them by name.
+     * Setters may run on a diag socket thread, so shared robot variables should
+     * use volatile fields, synchronized access, or an atomic holder.
      */
     public void registerDouble(
             String name, DoubleSupplier getter, DoubleConsumer setter, double min, double max) {

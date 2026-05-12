@@ -40,21 +40,13 @@ public class DiagTelemetry implements Telemetry, AutoCloseable {
 
     @Override
     public <T> Item addData(String caption, Func<T> func) {
-        capture(caption, () -> {
-            T value = func.value();
-            return value == null ? "" : String.valueOf(value);
-        });
-        captureNumeric(caption, func);
+        capture(caption, new FuncProvider<>(func, null));
         return delegate.addData(caption, func);
     }
 
     @Override
     public <T> Item addData(String caption, String format, Func<T> func) {
-        capture(caption, () -> {
-            T value = func.value();
-            return String.format(Locale.US, format, value);
-        });
-        captureNumeric(caption, format, func);
+        capture(caption, new FuncProvider<>(func, format));
         return delegate.addData(caption, format, func);
     }
 
@@ -187,10 +179,7 @@ public class DiagTelemetry implements Telemetry, AutoCloseable {
         }
         bus.begin();
         for (Map.Entry<String, ValueProvider> entry : captured.entrySet()) {
-            String value = DiagSchema.sanitizeCsv(entry.getValue().get());
-            if (!tryPutNumber(entry.getKey(), value)) {
-                bus.put(entry.getKey(), value);
-            }
+            putCapturedValue(entry.getKey(), entry.getValue());
         }
         bus.publish();
     }
@@ -222,39 +211,57 @@ public class DiagTelemetry implements Telemetry, AutoCloseable {
         }
     }
 
-    private <T> void captureNumeric(String caption, Func<T> func) {
-        if (caption == null || caption.isEmpty()) {
-            return;
-        }
-        T value = func.value();
-        if (value instanceof Number) {
-            captured.put(
-                    caption, new NumericProvider(((Number) value).doubleValue(), DEFAULT_NUMBER_FORMAT));
-        }
-    }
-
-    private <T> void captureNumeric(String caption, String format, Func<T> func) {
-        if (caption == null || caption.isEmpty()) {
-            return;
-        }
-        T value = func.value();
-        if (value instanceof Number) {
-            captured.put(caption, new NumericProvider(((Number) value).doubleValue(), format));
-        }
-    }
-
-    private boolean tryPutNumber(String caption, String value) {
-        ValueProvider provider = captured.get(caption);
+    private void putCapturedValue(String caption, ValueProvider provider) {
         if (provider instanceof NumericProvider) {
             NumericProvider numeric = (NumericProvider) provider;
             bus.put(caption, numeric.value, numeric.format);
-            return true;
+            return;
         }
-        return false;
+        if (provider instanceof FuncProvider) {
+            FuncProvider<?> funcProvider = (FuncProvider<?>) provider;
+            Object value = funcProvider.value();
+            if (value instanceof Number) {
+                String format =
+                        funcProvider.format == null ? DEFAULT_NUMBER_FORMAT : funcProvider.format;
+                bus.put(caption, ((Number) value).doubleValue(), format);
+                return;
+            }
+            bus.put(caption, DiagSchema.sanitizeCsv(funcProvider.format(value)));
+            return;
+        }
+        bus.put(caption, DiagSchema.sanitizeCsv(provider.get()));
     }
 
     private interface ValueProvider {
         String get();
+    }
+
+    private static final class FuncProvider<T> implements ValueProvider {
+        private final Func<T> func;
+        private final String format;
+
+        private FuncProvider(Func<T> func, String format) {
+            this.func = func;
+            this.format = format;
+        }
+
+        Object value() {
+            return func.value();
+        }
+
+        String format(Object value) {
+            if (value != null) {
+                return format == null
+                        ? String.valueOf(value)
+                        : String.format(Locale.US, format, value);
+            }
+            return "";
+        }
+
+        @Override
+        public String get() {
+            return format(value());
+        }
     }
 
     private static final class NumericProvider implements ValueProvider {

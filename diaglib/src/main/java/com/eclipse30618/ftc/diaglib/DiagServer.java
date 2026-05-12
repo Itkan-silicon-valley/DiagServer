@@ -36,6 +36,7 @@ public class DiagServer implements AutoCloseable {
     private final CopyOnWriteArrayList<ClientSession> sessions = new CopyOnWriteArrayList<>();
     private volatile boolean running;
     private volatile DiagSnapshot latestSnapshot;
+    private volatile ServerSocket serverSocket;
     private Thread acceptThread;
     private Thread broadcastThread;
 
@@ -98,6 +99,13 @@ public class DiagServer implements AutoCloseable {
     public void close() {
         // Stop the server and close all client connections.
         running = false;
+        ServerSocket server = serverSocket;
+        if (server != null) {
+            try {
+                server.close();
+            } catch (IOException ignored) {
+            }
+        }
         for (ClientSession session : sessions) {
             session.close();
         }
@@ -110,6 +118,7 @@ public class DiagServer implements AutoCloseable {
          * Each session handles commands and subscription rate.
          */
         try (ServerSocket server = new ServerSocket()) {
+            serverSocket = server;
             server.setReuseAddress(true);
             server.bind(new InetSocketAddress("0.0.0.0", port));
             while (running) {
@@ -121,6 +130,7 @@ public class DiagServer implements AutoCloseable {
             }
         } catch (IOException ignored) {
         } finally {
+            serverSocket = null;
             running = false;
         }
     }
@@ -146,6 +156,7 @@ public class DiagServer implements AutoCloseable {
         private final Socket socket;
         private final BufferedReader reader;
         private final BufferedWriter writer;
+        private final Object writeLock = new Object();
         private volatile int[] fields = new int[0];
         private volatile long intervalMs = 50;
         private long lastSentMs = 0;
@@ -175,10 +186,7 @@ public class DiagServer implements AutoCloseable {
             // Send one CSV line with only the fields this client requested.
             String line = snapshot.toCsv(fields);
             try {
-                writer.write("DATA ");
-                writer.write(line);
-                writer.write('\n');
-                writer.flush();
+                sendLine("DATA " + line);
                 lastSentMs = nowMs;
             } catch (IOException ignored) {
                 close();
@@ -219,13 +227,14 @@ public class DiagServer implements AutoCloseable {
             }
             if (line.toUpperCase().startsWith("SUB")) {
                 // Client wants to subscribe to specific fields.
-                parseSub(line.substring(3).trim());
-                writer.write("OK\n");
-                writer.flush();
+                synchronized (writeLock) {
+                    parseSub(line.substring(3).trim());
+                    writer.write("OK\n");
+                    writer.flush();
+                }
                 return;
             }
-            writer.write("ERR unknown\n");
-            writer.flush();
+            sendLine("ERR unknown");
         }
 
         private void sendFields() throws IOException {
@@ -248,8 +257,7 @@ public class DiagServer implements AutoCloseable {
                         .append(def.unit == null ? "" : def.unit);
             }
             out.append('\n');
-            writer.write(out.toString());
-            writer.flush();
+            sendRaw(out.toString());
         }
 
         private void sendConfig() throws IOException {
@@ -257,8 +265,7 @@ public class DiagServer implements AutoCloseable {
              * Send live-config entries (CFG line) or an empty list.
              */
             if (configRegistry == null) {
-                writer.write("CFG \n");
-                writer.flush();
+                sendLine("CFG ");
                 return;
             }
             List<ConfigRegistry.ConfigEntry> entries = configRegistry.list();
@@ -278,8 +285,7 @@ public class DiagServer implements AutoCloseable {
                         .append(entry.getMax());
             }
             out.append('\n');
-            writer.write(out.toString());
-            writer.flush();
+            sendRaw(out.toString());
         }
 
         private void handleSet(String args) throws IOException {
@@ -287,21 +293,29 @@ public class DiagServer implements AutoCloseable {
              * Apply SET name=value to the ConfigRegistry.
              */
             if (configRegistry == null) {
-                writer.write("ERR no-config\n");
-                writer.flush();
+                sendLine("ERR no-config");
                 return;
             }
             String[] parts = args.split("=", 2);
             if (parts.length != 2) {
-                writer.write("ERR bad-format\n");
-                writer.flush();
+                sendLine("ERR bad-format");
                 return;
             }
             String name = parts[0].trim();
             String value = parts[1].trim();
             boolean ok = configRegistry.set(name, value);
-            writer.write(ok ? "OK\n" : "ERR invalid\n");
-            writer.flush();
+            sendLine(ok ? "OK" : "ERR invalid");
+        }
+
+        private void sendLine(String line) throws IOException {
+            sendRaw(line + "\n");
+        }
+
+        private void sendRaw(String raw) throws IOException {
+            synchronized (writeLock) {
+                writer.write(raw);
+                writer.flush();
+            }
         }
 
         private void parseSub(String args) {

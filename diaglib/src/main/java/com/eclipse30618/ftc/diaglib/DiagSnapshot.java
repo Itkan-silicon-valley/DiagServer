@@ -14,8 +14,7 @@ public class DiagSnapshot {
      * Create a snapshot with the given ordered value list.
      */
     public DiagSnapshot(String[] values) {
-        // Store the values exactly as they are.
-        this.values = values;
+        this.values = Arrays.copyOf(values, values.length);
     }
 
     /**

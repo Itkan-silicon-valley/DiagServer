@@ -25,7 +25,7 @@ public class DiagSnapshotBuilder {
      */
     public void set(int index, String value) {
         // Save a string value at a specific index.
-        values[index] = value == null ? "" : value;
+        values[index] = DiagSchema.sanitizeCsv(value);
     }
 
     /**

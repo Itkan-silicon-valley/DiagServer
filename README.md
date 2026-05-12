@@ -42,6 +42,10 @@ diagBus.put("front_left_power", frontLeft.getPower(), "%.3f");
 diagBus.publish();
 ```
 
+Live config setters are applied from the diagnostics socket thread. If the robot
+loop reads the same values, store them in `volatile` fields, synchronized accessors,
+or atomic holders.
+
 ## Project Layout
 
 ```text
