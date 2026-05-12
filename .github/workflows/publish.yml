@@ -27,10 +27,10 @@ jobs:
           gradle-version: "8.13"
 
       - name: Build
-        run: ./gradlew :diaglib:build
+        run: gradle :diaglib:build
 
       - name: Publish to Maven Central
-        run: ./gradlew :diaglib:publishToMavenCentral
+        run: gradle :diaglib:publishToMavenCentral
         env:
           ORG_GRADLE_PROJECT_VERSION_NAME: ${{ github.ref_name }}
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
