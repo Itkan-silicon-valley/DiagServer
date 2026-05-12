@@ -27,6 +27,13 @@ Add a robot-specific schema file at:
 TeamCode/src/main/assets/configs/diag_schema.json
 ```
 
+Copyable schema examples are in `examples/`:
+
+```text
+examples/diag_schema_example.json      Minimal schema for the Java examples
+examples/diag_schema_drivetrain.json   Drivetrain-focused schema
+```
+
 Use the diagnostics bus from an OpMode:
 
 ```java
